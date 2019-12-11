@@ -1,0 +1,584 @@
+---
+title: 'The Comics Industry, DC and Marvel: Dead or Alive'
+author: "Joao Mansur"
+date: "12/8/2019"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+## Introduction
+
+  It is nearly impossible to find someone who was born before the 2000s who doesn't at least consider comics to be a historic part of the entertainment industry. As time has advanced, however, we find that those of younger generations or those who have forgotten don't really appreciate comics to be in the same league as other parts of what we could also call the storytelling industry. Asked now, most would be hard-pressed to mention comics as significant without structuring their points around the Marvel and DC cinematic and tv universes.
+  Using data aggregated by Comichron and sourced from the distributor Diamond Comics, who almost unilaterally supplies comic book shops, we will seek to identify trends in the industry. Is the industry going down? What useful information can we gather about Marvel and DC? Which titular franchises add more to sales? Lets see what industry trends we can find out with this data.
+Github project and code available at: https://github.com/joaomansur/Comics
+
+## Data
+
+  As mentioned in the intro, the data was sourced from Comichron (comichron.com) in their Monthly Sales Reports. This data uses their estimation of units sold by the distributor Diamond to comic book stores. This is significant because it doesn't address consumer demand but rather comic book store demand. However, since the stores operate using a model where they have to pay for comics whether or not they sell it should be a significant source of information for the industry as-a-whole's health. We stitched data from the website from 2007 to October of 2019 and used sales information from the top 300 comics sold that month.
+```{r setup, include=FALSE}
+#Initializing  and setting chunks not to show in a Markdown print.
+library(tseries)
+library(forecast)
+library(ggplot2)
+library(dplyr)
+
+knitr::opts_chunk$set(echo=FALSE,include=FALSE)
+```
+  The data from Comichron includes the ranking per month for Unit Sales, Dollar Sales, Comic Book Title, Issue number, Price, Date put on sale, Publisher, and the estimate of units sold that month. When creating the data, we added a column for month and year and created columns (designated with N) that cleaned the Issue and Price columns. One issue with... Issues was that some used characters (1*) or some included text (1st Edition); these were cleaned with general expressions and manual work in Excel.
+  After that, we used R to change some unit formats and create a few new columns. One column will create new categories to seperate Marvel and DC comics from all others. After that, we created a column for the largest DC and Marvel franchises and one other; all of which had broken 100k units sold at some point. Lastly, we created a column to categorize first issues, those from 2-12, those until 100, and those beyond that; first issues are most common, issues up to 12 are usually miniseries, the others are long-running, the baseline will be comics with sissue 0 which are either special background issues or those that don't fit this categorization. This will allow us to identify the power of Marvel and DC brand names as well as the strength of their heroes and stories in sales.
+
+
+```{r}
+#Loading data
+comics<-read.csv("7o19.5.csv")
+#Lets make things a little more convenient for R
+comics$URank<-comics$ï..Unit
+comics$Year<-as.numeric(comics$Year)
+comics$Month<-as.numeric(comics$Month)
+comics$Publisher<-as.factor(comics$Publisher)
+comics$Sold<-as.numeric(comics$EstSold)
+comics$XSold<-log(comics$Sold)
+comics$FirstIssue<-0
+comics$FirstIssue[comics$IssueN==1]<-1
+comics$BigPub<-"00-Others"
+comics$BigPub[comics$Publisher=='DC']<-'DC'
+comics$BigPub[comics$Publisher=='Marvel']<-'Marvel'
+#Only use Marvel and DC for now
+#comics$BigPub[comics$Publisher=='IDW']<-'IDW'
+#comics$BigPub[comics$Publisher=='Valiant']<-'Valiant'
+#comics$BigPub[comics$Publisher=='Dark Horse']<-'Dark Horse'
+#comics$BigPub[comics$Publisher=='Image']<-'Image'
+#comics$BigPub[comics$Publisher=='Boom']<-'Boom'
+comics$reading[comics$Year==2007]<-.35
+comics$reading[comics$Year==2008]<-.34
+comics$reading[comics$Year==2009]<-.34
+comics$reading[comics$Year==2010]<-.3
+comics$reading[comics$Year==2011]<-.3
+comics$reading[comics$Year==2012]<-.33
+comics$reading[comics$Year==2013]<-.32
+comics$reading[comics$Year==2014]<-.32
+comics$reading[comics$Year==2015]<-.32
+comics$reading[comics$Year==2016]<-.29
+comics$reading[comics$Year==2017]<-.28
+comics$reading[comics$Year==2018]<-.26
+comics$reading[comics$Year==2019]<-.25
+
+comics$On.sale<-as.Date(comics$On.sale,format='%m/%d/%Y')
+comics$Title3<-"0-Other"
+comics$Title3[grepl("Spider-Man", comics$Comic.book.Title, fixed=TRUE)]<-"Spider-Man"
+comics$Title3[grepl("Spider-Gwen", comics$Comic.book.Title, fixed=TRUE)]<-"Spider-Man"
+comics$Title3[grepl("Batman", comics$Comic.book.Title, fixed=TRUE)]<-"Batman"
+comics$Title3[grepl("Batgirl", comics$Comic.book.Title, fixed=TRUE)]<-"Batman"
+comics$Title3[grepl("Dark Knight", comics$Comic.book.Title, fixed=TRUE)]<-"Batman"
+comics$Title3[grepl("Justice League", comics$Comic.book.Title, fixed=TRUE)]<-"Justice League"
+comics$Title3[grepl("52", comics$Comic.book.Title, fixed=TRUE)]<-"Justice League"
+comics$Title3[grepl("X-Men", comics$Comic.book.Title, fixed=TRUE)]<-"X-Men"
+comics$Title3[grepl("of X", comics$Comic.book.Title, fixed=TRUE)]<-"X-Men"
+comics$Title3[grepl("Avengers", comics$Comic.book.Title, fixed=TRUE)]<-"Avengers"
+comics$Title3[grepl("Star Wars", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Chewbacca", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Padawan", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Obi-Wan", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Darth", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Leia", comics$Comic.book.Title, fixed=TRUE)]<-"Star Wars"
+comics$Title3[grepl("Superman", comics$Comic.book.Title, fixed=TRUE)]<-"Superman"
+comics$Title3[grepl("Super man", comics$Comic.book.Title, fixed=TRUE)]<-"Superman"
+comics$Title3[grepl("Super Man", comics$Comic.book.Title, fixed=TRUE)]<-"Superman"
+comics$Title3[grepl("Thor", comics$Comic.book.Title, fixed=TRUE)& comics$Publisher == 'Marvel']<-"Thor"
+comics$Title3[grepl("Harley Quinn", comics$Comic.book.Title, fixed=TRUE)]<-"Harley Quinn"
+comics$Title3[grepl("Joker", comics$Comic.book.Title, fixed=TRUE)]<-"Batman"
+comics$Title3[grepl("Joker", comics$Comic.book.Title, fixed=TRUE)]<-"Batman"
+comics$Title3[grepl("Super man", comics$Comic.book.Title, fixed=TRUE)]<-"Superman"
+comics$Title3[grepl("Wolverine", comics$Comic.book.Title, fixed=TRUE)]<-"Wolverine"
+comics$Title3[grepl("Old Man Logan", comics$Comic.book.Title, fixed=TRUE)]<-"Wolverine"
+comics$Title3[grepl("Guardians", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Guardians OTG"
+comics$Title3[grepl("Guardians", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Guardians OTG"
+comics$Title3[grepl("Iron Man", comics$Comic.book.Title, fixed=TRUE)]<-"Iron Man"
+comics$Title3[grepl("Doctor Strange", comics$Comic.book.Title, fixed=TRUE)]<-"Doctor Strange"
+comics$Title3[grepl("Fantastic Four", comics$Comic.book.Title, fixed=TRUE)]<-"Fantastic Four"
+comics$Title3[grepl("Human Torch", comics$Comic.book.Title, fixed=TRUE)]<-"Fantastic Four"
+comics$Title3[grepl("Invisible Woman", comics$Comic.book.Title, fixed=TRUE)]<-"Fantastic Four"
+comics$Title3[grepl("The Thing", comics$Comic.book.Title, fixed=TRUE)]<-"Fantastic Four"
+comics$Title3[grepl("Mister Fantastic", comics$Comic.book.Title, fixed=TRUE)]<-"Fantastic Four"
+comics$Title3[grepl("Hulk", comics$Comic.book.Title, fixed=TRUE)]<-"Hulk"
+comics$Title3[grepl("Wonder Woman", comics$Comic.book.Title, fixed=TRUE)]<-"Wonder Woman"
+comics$Title3[grepl("Flash", comics$Comic.book.Title, fixed=TRUE)& comics$Publisher == 'DC']<-"Flash"
+comics$Title3[grepl("Green Lantern", comics$Comic.book.Title, fixed=TRUE)]<-"Green Lantern"
+comics$Title3[grepl("Captain Marvel", comics$Comic.book.Title, fixed=TRUE)]<-"Captain Marvel"
+comics$Title3[grepl("Aquaman", comics$Comic.book.Title, fixed=TRUE)]<-"Aquaman"
+comics$Title3[grepl("Deadpool", comics$Comic.book.Title, fixed=TRUE)]<-"Deadpool"
+comics$Title3[grepl("Deadpool", comics$Comic.book.Title, fixed=TRUE)]<-"Deadpool"
+comics$Title3[grepl("Green Arrow", comics$Comic.book.Title, fixed=TRUE)]<-"Green Arrow"
+comics$Title3[grepl("Captain America", comics$Comic.book.Title, fixed=TRUE)]<-"Captain America"
+comics$Title3[grepl("Black Panther", comics$Comic.book.Title, fixed=TRUE)]<-"Black Panther"
+comics$Title3[grepl("Action Comics", comics$Comic.book.Title, fixed=TRUE)]<-"Action Comics"
+comics$Title3[grepl("Amazing Mary Jane", comics$Comic.book.Title, fixed=TRUE)]<-"Spider-Man"
+comics$Title3[grepl("Walking Dead", comics$Comic.book.Title, fixed=TRUE)]<-"Walking Dead"
+comics$Title3[grepl("Watchmen", comics$Comic.book.Title, fixed=TRUE)]<-"Watchmen"
+comics$Title3[grepl("Gwenpool", comics$Comic.book.Title, fixed=TRUE)]<-"Gwenpool"
+comics$Title3[grepl("Dark Tower", comics$Comic.book.Title, fixed=TRUE)]<-"Dark Tower"
+comics$Title3[grepl("Detective Comics", comics$Comic.book.Title, fixed=TRUE)]<-"Detective Comics"
+#Marvel Special Events
+comics$Title3[grepl("War of the Realms", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("War of Realms", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Secret Empire", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Civil War", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Secret War", comics$Comic.book.Title, fixed=TRUE) &comics$ Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("AXIS", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Original Sin", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Absolute Carnage", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Age of Ultron", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Infinity", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Thanos", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$Title3[grepl("Convergence", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Doomsday Clock", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("DCeased", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("DC Universe", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Convergence", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Blackest Night", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Brightest Day", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Dark Nights", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Heroes in Crisis", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Final Crisis", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Dark Days: The Forge", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Heroes in Crisis", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'DC']<-"DC Event"
+comics$Title3[grepl("Secret Invasion", comics$Comic.book.Title, fixed=TRUE) & comics$Publisher == 'Marvel']<-"Marvel Event"
+comics$IssueF<-"2-12"
+comics$IssueF[comics$IssueN>12]<-"13-99"
+comics$IssueF[comics$IssueN>100]<-"100+"
+comics$IssueF[comics$IssueN==1]<-"First Issue"
+comics$IssueF[comics$IssueN==0]<-"00-Issue 0 or other"
+#To no artificially skew data for the later years that gathered 500 samples, we standardize to 300
+comics<-comics[comics$URank<=300,]
+comics$Franchise<-comics$Title3
+#Price segmentation
+#Remove outliers for expensive editions, theyre not interesting and too few(<10).
+comics<-comics[comics$PriceN<=12,]
+comics$PriceF<- "Non-Std Pricing"
+comics$PriceF[comics$Price=='$0.99']<-0.99
+comics$PriceF[comics$Price=='1']<-0.99
+#comics$PriceF[comics$Price=='$1.99']<-1.99
+comics$PriceF[comics$Price=='$2.99']<-2.99
+comics$PriceF[comics$Price=='$3.99']<-3.99
+comics$PriceF[comics$Price=='$4.99']<-4.99
+comics$PriceF[comics$Price=='$5.99']<-5.99
+#comics$PriceF[comics$Price=='$6.99']<-6.99
+comics$PriceF[comics$Price=='$7.99']<-7.99
+comics$PriceF[comics$Price=='0.99']<-0.99
+#comics$PriceF[comics$Price=='1.99']<-1.99
+comics$PriceF[comics$Price=='2.99']<-2.99
+comics$PriceF[comics$Price=='3.99']<-3.99
+comics$PriceF[comics$Price=='4.99']<-4.99
+comics$PriceF[comics$Price=='5.99']<-5.99
+#comics$PriceF[comics$Price=='6.99']<-6.99
+comics$PriceF[comics$Price=='7.99']<-7.99
+#comics$PriceN[comics$Price=='8.99']<-8.99 no comics do this, they skip to 9.99 usually
+#comics$PriceF[comics$Price=='9.99']<-9.99
+comics$PriceF<-as.factor(comics$PriceF)
+comics$PriceClassic<-"Non-Std Pricing"
+comics$PriceClassic[comics$Price=='3.99']<-3.99
+```  
+  
+## Exploratory Data Analysis
+```{r}
+summary(comics)
+```
+  From a look at the data summary [Appendix 1] we can see that Marvel and DC have between two and three times more comics published than the third largest Image comics, and several times more so than other publishers. The most common issue number is the first issue and it seems to drop off steadily after that. Finally, Comichron's estimates for units sold have a range between 391 and 985976 units with a median of 10844 and mean of 19629.
+
+  Accordingly, when we plot the frequency of the estimates of units sold we see that a grand majority of them sell relatively low amounts [2]. By taking the natural logarithm of the estimates, we see a more normalized distribution [2] which could be more helpful in the model building process later on. For now, let's begin by checking out the effects of the big players Marvel and DC in different issue categories:
+
+```{r fig.height=3, fig.width=6, include=TRUE}
+qplot(x=as.factor(IssueF),y=XSold,data=comics,xlab="Comic Issue",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(BigPub))
+
+``` 
+
+  There is a notable difference between Marvel and DC sales from all others, this effect does seem to change with each category as well. Confirming our categorization parameters, the amount of issues fall off after the 12th and the 100th issue and issue 1 is distinctly higher than the others. That first issue has a broader range of behavior and a different median than those in 2-12. We can also see the performance is best in the 100+, probably due to the long-running premium franchises like Amazing Spiderman and Batman.
+
+In Appendix 5 we see something interesting. DC's franchise comics seem to outsell its other comics, while the difference may be there but it is not as clear for Marvel.
+
+When it comes to price segmentation we don't see any clear conclusions numerically or as a category[3] though it does seem that controlling it as a category would be useful to include Non-Standard pricing. Note that 1.99, 6.99, 8,99, and 9.99 have less than 50 data points and were grouped into Non-Standard pricing. Also, the classic comic book price is 3.99 though there are rumors that this price will go up we still register most data in that category. Another graph compares 3.99 priced comics to all others and it seems to show that there is no significant difference in using the classic versus any other price [3].
+
+## Model
+
+```{r}
+#lm1<-lm(XSold~BigPub+IssueF+PriceF+Franchise+Month+Year,data=comics)
+#summary(lm1)
+#First model resulted in .4264 r squared
+#add more publishers
+comics$BigPub[comics$Publisher=='IDW']<-'IDW'
+comics$BigPub[comics$Publisher=='Valiant']<-'Valiant'
+comics$BigPub[comics$Publisher=='Dark Horse']<-'Dark Horse'
+comics$BigPub[comics$Publisher=='Image']<-'Image'
+comics$BigPub[comics$Publisher=='Boom']<-'Boom'
+comics$BigPub[comics$Publisher=='Archie']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Aftershock']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Bongo']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Dynamic']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Dynamite']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Dynamics Forces']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Oni']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Titan']<-'Large Indie'
+comics$BigPub[comics$Publisher=='Zenescope']<-'Large Indie'
+lm1<-lm(XSold~BigPub+IssueF+PriceF+Franchise+Month+Year,data=comics)
+```
+The basic linear regression used the publisher, price, issue numver, and franchise factors as well as month and year to predict sales. It came out to a multiple R squared of.4264 with only three Marvel franchises appearing to have no significant effect on sales: Captain Marvel, Dark Tower, and Gwenpool. After adding more publishers, the 5 next largest in market share and then classifying those that published more than 200 comics into another category, the R squared increases to .4354. As it turns out, this will not be vastly improved as we can add interaction effects. [Model Appendix 8]
+
+```{r}
+#steplm<-step(lm(XSold~BigPub+IssueF+PriceF+Franchise+Month+Year +BigPub:IssueF+BigPub:PriceF+BigPub:Year+Franchise*(IssueF+Year)+Month:Year +IssueF:Year,data=comics),direction=c("both"))
+
+lm2<-lm(formula = XSold ~ BigPub + IssueF + PriceF + Franchise + Month + 
+    Year + BigPub:IssueF + BigPub:PriceF + BigPub:Year + Franchise * 
+    (IssueF + Year) + Month:Year + IssueF:Year, data = comics)
+#summary(steplm)
+#lm2<-steplm
+summary(lm2)
+```
+
+Using a stepwise regression that optimizes for AIC using interactions found in our EDA and some domain knowledge we reached a model with over 100 coefficients. As a linear regression we are quickly approaching the maximum amount of predictive value we can get. [Model Appendix 9]
+
+There were several issues encountered when improving the model:
+1.Economic data created multicollinearity problems with the Year variable and with each other, what this means is that the coefficient for Year captures enough economic variance for the comic book industry. Consumer Price Index, Retail industry GDP, and even the average amount an American spends reading all had the same issues.
+2.There are not many continuous variables we can use for comic books, either they are standardized (number and size of pages) or the data is unavailable (Marketing or other business intelligence). A lack of information presents further challenges when predicting sales leading to large  but consistently distributed residuals.
+3.To check several assumptions, a simple logistic regression was run on which comic books are likely to make top 10 on the sale lists. The most rudimentary model had nearly 80% accuracy with just publisher and franchise information. This indicates that the industry's top sellers are heavily based on inertia and name value. Long-running franchises like Amazing Spiderman and Batman comics are routinely ordered most, non-Marvel/DC comics and especially original franchises have little to no chance without being backed by a tv or movie brand like Walking Dead or Buffy the Vampire Slayer. We were able to capture the variation from name value, unfortunately the issue of inertia is difficult. Despite name brands, bad comics from bad authors tend to generate low order amounts if shops can't push them. On the other hand, some comics have long-running series that have long-term fans. The issue of inertia may be addressed in future models, especially if a database with author/artist/storyline could be made available.
+
+Given the above issues addressed, the final model we reached can be described thusly:
+
+###Linear Regression Model:
+Summary/Confidence Intervals: Appendix 9
+
+Outcome: Natural logarithm of Estimated Sales to Comic Shops
+
+Predictors:
+1)Publisher: Marvel,DC,IDW,Image,Valiant,Boom,DarkHorse, LargeIndie (200+ Published), Others
+2)Issue Number:First Issue, 2-12,13-99,100+
+3)Price:.99,2.99,3.99,4.99,5.99,7.99,Non-Standard
+4)Franchises:
+-Marvel: Avengers, Black Panther, Captain Marvel, Dark Tower (Stephen King), Deadpool, Doctor Strange, Fantastic Four, Guardians of the Galaxy, Gwenpool, Hulk, Iron Man, Marvel Events, Spider-man, Star Wars, Thor, Wolverine, X-Men
+-DC: Action Comics, Aquaman, Batman, DC Events, Detective Comics, Flash, Green Arrow, Green Lantern, Harley Quinn, Justice League, Superman, Watchmen, Wonder Woman
+-Others: Walking Dead and Non-Franchise Name
+5)Year 2007-2019(November)
+6)Month
+
+Interactions
+Publisher and Issue, Price, Year
+Franchise and Issue and Year
+Month and Year
+Issue and Year
+
+The model using the above figures allows us to explain 47.% of the variance in comic book sales to comic book shops. Though it is satisfies linearity, constant variance, and outlier assumptions, it has fat tails in the normality curve, showing a loss in predictive power in the lower and upper quartiles. With regards to outliers, a few points have high leverage but are within Cook's Distance and removing them created no issues. The model does not suffer from multicollinearity, thanks to the removal of economic variables previously used. Even given clear short-comings the model allows us to understand the comic book industry and satisfyingly answers several questions of interest.
+
+It is important to note that the confidence intervals are quite wide with some coefficients, but for the ones used in the analysis below their width does not impact the industry trend they portray. The values themselves aren't as important as their significance, especially given the model used.
+
+### Time Series
+```{r}
+comics$MDC<-"Indie"
+comics$MDC[comics$Publisher=='DC']<-'DC'
+comics$MDC[comics$Publisher=='Marvel']<-'Marvel'
+comics<-comics[comics$URank<=300,]
+ComicsMDC<-comics[,c(9,10,11,24)]
+ComicsMDC <- ComicsMDC %>% group_by(MDC,Month,Year)
+Summ<- ComicsMDC %>% summarise(
+  EstSold = sum(EstSold),
+)
+Summ2<-as.data.frame(Summ)
+attach(Summ2)
+Summ2 <- Summ2[order(Year, Month),]
+detach(Summ2)
+
+DC<-Summ2[Summ2$MDC=='DC',]
+Marvel<-Summ2[Summ2$MDC=='Marvel',]
+Indie<-Summ2[Summ2$MDC=='Indie',]
+tsComicsM <- ts((Marvel$EstSold))
+tsComicsD <- ts((DC$EstSold))
+tsComicsI <- ts((Indie$EstSold))
+Agg<- ComicsMDC
+Agg <- Agg %>% group_by(Month,Year)
+Agg<- Agg %>% summarise(
+  EstSold = sum(EstSold),
+)
+attach(Agg)
+Agg <- Agg[order(Year, Month),]
+detach(Agg)
+
+tsComics <- ts(Agg$EstSold)
+ts.plot(tsComics,col="red3")
+ts.plot(tsComicsM, tsComicsD, tsComicsI,tsComics, gpars = list(col = c("red", "blue", "black","purple")))
+```
+
+```{r}
+adf_testM <- adf.test(tsComicsM,alternative = 'stationary')
+print(adf_testM)
+adf_testD <- adf.test(tsComicsD,alternative = 'stationary')
+print(adf_testD)
+adf_testI <- adf.test(tsComicsI,alternative = 'stationary')
+print(adf_testI)
+adf_test <- adf.test(tsComics,alternative = 'stationary')
+print(adf_test)
+
+#DC seems stationary
+```
+```{r}
+kpss_testM <- kpss.test(tsComicsM)
+print(kpss_testM)
+kpss_testD <- kpss.test(tsComicsD)
+print(kpss_testD)
+kpss_testI <- kpss.test(tsComicsI)
+print(kpss_testI)
+kpss_test <- kpss.test(tsComics)
+print(kpss_test)
+```
+
+```{r}
+data <- ts(Agg$EstSold)
+tsC<-data/stats::lag(data,-1) - 1
+
+tsM<-tsComicsM/stats::lag(tsComicsM,-1) - 1
+tsD<-tsComicsD/stats::lag(tsComicsD,-1) - 1
+tsI<-tsComicsI/stats::lag(tsComicsI,-1) - 1
+```
+```{r}
+adf_testM <- adf.test(tsM,alternative = 'stationary')
+print(adf_testM)
+adf_testD <- adf.test(tsD,alternative = 'stationary')
+print(adf_testD)
+adf_testI <- adf.test(tsI,alternative = 'stationary')
+print(adf_testI)
+adf_test <- adf.test(tsC,alternative = 'stationary')
+print(adf_test)
+
+#Marvel and DC seem stationary
+```
+```{r}
+kpss_testM <- kpss.test(tsM)
+print(kpss_testM)
+kpss_testD <- kpss.test(tsD)
+print(kpss_testD)
+kpss_testI <- kpss.test(tsI)
+print(kpss_testI)
+kpss_test <- kpss.test(tsC)
+print(kpss_test)
+```
+```{r}
+Model1<-auto.arima(tsC)
+#predict(Model1, n.ahead = 24)
+auto.arima(tsC)
+auto.arima(tsM)
+auto.arima(tsD)
+auto.arima(tsI)
+
+ModelM<-auto.arima(tsM)
+ModelD<-auto.arima(tsD)
+ModelI<-auto.arima(tsI)
+predict(Model1, n.ahead = 24)
+predict(ModelM, n.ahead = 24)
+predict(ModelD, n.ahead = 24)
+predict(ModelI, n.ahead = 24)
+```
+  In the Appendix graph [6], we see total monthly sales in purple, for Marvel in red, DC in blue, and Indies in black. Only DC passes ADF and KPSS tests for stationarity [10], the others do not seem to follow this. When we transform the data into % change from previous month, we see a much more stationary time series [7]. All four time series pass stationarity tests. [11]
+  As for predictive models, we see that the time series can be fit to auto-ARIMA models and used to predict subsequent months. This is nearly useless except for the fact that most of them predict a rise in the month of December in 2019, which is fairly obvious. Given gigantic standard errors, predicting values that could be positive or negative, I would not see Time Series as a valid model for predictive analysis, especially due to monthly data. See Appendix 12 for models and prediction results.
+
+## Analysis
+
+As per our project goals, we will mostly be interested in Marvel and DC though we have controlled for other publishers. Our baseline comic is from a small indie publisher, priced 0.99, issue 0 or abnormal, no-name franchise, sold in January 2007. 
+
+### General health of the industry and Marvel and DC's role:
+The goal of the project is to understand the comics industry and Marvel and DC's role in it; especially as these two players control a vast majority of the market (floating between 30% and 40% market share each).Based on brand alone, DC comics sell 2E30 and Marvel sells 5E59 more units; the Marvel brand clearly carries more weight. Other publishers, except for Image comics, also contribute positively to sales. 
+
+According to our model, we are seeing a 5.24% increase in units sold to comic book stores; this implies a healthy but slow industry-especially considering the explosive growth of Marvel movies since Iron Man in 2008 (our analysis begins in 07). However all publishers, except Image, are seeing a yearly decrease to the power of their brand in unit sales; DC is seeing a 3.38% decrease per year while Marvel's is 6.58%. Month also seems to be important for the industry, each month seems to have a multiplicative effect of 3.67 times; a lot of this might be accounted by the amount of sales increase in December and January's classically low-performing figures.
+
+As far as Issue numbers, long-running 100+ Issues sell 7.8E27 more and first issue comics sell 1.4E23 less than abnormal issues (like one-shots or special editions). This does mean that long-running comics are more succesful, most having an established fan base, and it means that entering the comic book industry with a new run is difficult. Over the years, however, we see that 100+ Issue sales have been decreasing by around 3.2% and Firs Issues have been increasing by 2.7%. For DC, special and 100+ issues sell most; First Issues sell 23% less, 2-12 sell 38% less, 13-99 sell 33% less. For Marvel, First Issues sell 30% more, 2-12 sell 18% more, 13-99 sell 46% more, 100+ sell 198% more. While this is very reflective of the baseline approach, it is important to notice the steep loss for both after the first issue. This is undestandable: to save face, many comic runs are cancelled at 12 to be called post-hoc as a miniseries and then rebooted later.
+
+Finally, prices don't seem to impact sales for the whole industry (neither numerically or as a factor) but Marvel and DC seem to have considerably less success with comics priced at 0.99 (the baseline) who sell about half as much as differently priced issues. 
+
+### Franchises
+The top-selling franchises are many, but most failed to have impactful brands while some even had negative impacts. For DC, Green Lantern, Harley Quinn, and Wonder Woman had overall positive impacts on sales. For Marvel, Avengers, Dark Tower, Hulk, and Star Wars seem to have positive effects. On the other hand DC's Action Comics, Batman, Detective Comics and Marvel's Deadpool, Fantastic Four, and Spiderman comics have negative impacts on sales. This isn't necessarily indicative of weak or strong brands yet, we still need to see how interactions impact these values.
+
+One category of franchises seem to perform better at long-running issues. The household names for DC 100+ issues embody this as Batman's sell nearly double, Superman issues sell 3.5 times as much and Detective Comics (one of two oldest franchises and the origin of Batman) sells four times as much. The effect is less for Marvel, whose Spiderman 100+ issues sell 68.8% more, and X-Men sell 40% more. In the 13-99 category this is true for other franchises: Green Lantern and DC events sell double, Captain America sells 42% more, Iron Man's 13-99 issues sell 56% more while Avengers, Fantastic Four, and special Marvel Events sell less,
+
+Special franchises like Walking Dead and Stephen King's Dark Tower seem to have a steep drop-off after their first and special issues, where WD has 70% less sales and the Dark Tower has a 90% drop.
+
+Overall, we see that DC's franchises carry a lot of weight, some having a doubling or quadrupling effect, while Marvel's effects tend to be less than 100%. This reasonable evidence to show a large part of how Marvel carries more weight in its brand and DC's power is in its hero franchises.
+
+### A Note on Time Series
+Though success on predictive modelling was minimal, there are a few curiosities with the time series models. Firstly, on the estimated sales series, only DC had a stationary time series. This could be an indication of how DC operates mostly on inertia and their successful franchises have been succesful for a long enough time. Marvel does tend to meddle more (frequent relaunch events especially) and Indie comics fluctuate more in publishers. After moving to percent change we see a more stable time series, though the predictions were not useful and some stopped changing at the second month. The standard errors on predictions was large enough to create a range of negative and positve values. Considering the heavy increase in sales (the next month in the data) it is hard to consider the model predictive enough or useful. Nevertheless, it seems that a yearly time series data could be useful in the future, as there is evidence for reliance on sequential data when considering the whole industry.
+
+## Conclusion
+
+Despite a model that can only account for 47% of the variance in sales in comics, we were able to find or confirm several interesting facts about the comic book industry. Marvel and DC's dominance, which brands they rely on, and where they seem to struggle most. Though it is nice to see that the industry as a whole has managed to attain a 5% growth in our model, their over-reliance on Marvel and DC may prove to be detrimental as the two are seeing a clear decrease at the same time. In the future, it would be useful to go month-by-month and see how Marvel and DC played that month: how many relaunches or reboots, how many new runs, and more. Including authors and artist would also be useful, many authors or artists could have particular fanbases.
+
+Our model clearly possesses several limitations. The reliance on factor variables makes it clearly unable to accurately predict sales. The data source is also a limitation, although Diamond Comics is a monopoly, online sales and independant distributions exist.
+
+As to the future of the industry, what can we tell? Will we move away from Marvel and DC? It is hard to tell just yet. What we should see is a change to a different model or business as a whole. On Indiegogo, Cyberfrog raised nearly a million, Earthworm Jim raised 800k, Icarus and the Sun raised 600k dollars and more raised money on Kickstarter. Could these comics be the future? Probably not with yearly release cycles. What we can be glad for is that the comics industry doesn't seem to be dying so far, though I would venture a guess a switch to premium art might be happening.
+
+Refer to the project GitHub for code:
+https://github.com/joaomansur/Comics
+
+\newpage
+
+## Appendix
+
+1- Data Summary
+
+```{r,include=TRUE}
+summary(comics)
+```
+
+2 Histogram of Output
+
+```{r,fig.height=3, fig.width=6, include=TRUE}
+par(mfrow=c(1,2))
+hist(comics$EstSold)
+hist(log(comics$EstSold))
+
+```
+
+3 Numeric Price and Classic Price comparison
+
+```{r,fig.height=3, fig.width=6, include=TRUE}
+plot(comics$PriceN,comics$XSold)
+
+qplot(x=PriceF,y=XSold,data=comics,xlab="Price",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(BigPub))
+
+qplot(x=PriceClassic,y=XSold,data=comics,xlab="Price",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(BigPub))
+```
+
+4- EDA Issue and Publisher
+
+```{r fig.height=4, fig.width=6, include=TRUE}
+#Lets check out issues
+qplot(x=as.factor(IssueF),y=XSold,data=comics,xlab="Comic Issue",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(BigPub))
+#Table used to categorize Issues for reference:
+#table(round(comics$IssueN,digits=0))
+``` 
+
+5-Franchise EDA
+
+```{r fig.height=4, fig.width=6,, include=TRUE}
+qplot(x=as.factor(Franchise),y=XSold,data=comics[comics$BigPub=="DC",],xlab="Comic Franchise",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(Franchise))
+qplot(x=as.factor(Franchise),y=XSold,data=comics[comics$BigPub=="Marvel",],xlab="Comic Franchise",ylab="Log Average Comics Sold",
+      geom="boxplot",fill=as.factor(Franchise))
+```
+
+6-Time Series -Estimated Units
+
+```{r fig.height=4, fig.width=6,, include=TRUE}
+ts.plot(tsComicsM, tsComicsD, tsComicsI,tsComics, gpars = list(col = c("red", "blue", "black","purple")))
+```
+
+7-Time Series -%Monthly Change
+
+```{r fig.height=4, fig.width=6,, include=TRUE}
+par(mfrow=c(2,2))
+ts.plot(tsC)
+ts.plot(tsM)
+ts.plot(tsD)
+ts.plot(tsI)
+```
+
+8 First Model summary
+
+```{r, include=TRUE}
+summary(lm1)
+```
+
+9 Final Model summary and confidence intervals
+
+```{r, include=TRUE}
+summary(lm2)
+confint(lm2)
+```
+
+10 Stationarity Tests for Sale Estimates
+
+```{r, include=TRUE}
+adf_testM <- adf.test(tsComicsM,alternative = 'stationary')
+print(adf_testM)
+adf_testD <- adf.test(tsComicsD,alternative = 'stationary')
+print(adf_testD)
+adf_testI <- adf.test(tsComicsI,alternative = 'stationary')
+print(adf_testI)
+adf_test <- adf.test(tsComics,alternative = 'stationary')
+print(adf_test)
+
+#DC seems stationary
+```
+```{r,include=TRUE}
+kpss_testM <- kpss.test(tsComicsM)
+print(kpss_testM)
+kpss_testD <- kpss.test(tsComicsD)
+print(kpss_testD)
+kpss_testI <- kpss.test(tsComicsI)
+print(kpss_testI)
+kpss_test <- kpss.test(tsComics)
+print(kpss_test)
+```
+
+11 Stationarity Tests for % Monthly change in Sale Estimates
+
+```{r, include=TRUE}
+data <- ts(Agg$EstSold)
+tsC<-data/stats::lag(data,-1) - 1
+
+tsM<-tsComicsM/stats::lag(tsComicsM,-1) - 1
+tsD<-tsComicsD/stats::lag(tsComicsD,-1) - 1
+tsI<-tsComicsI/stats::lag(tsComicsI,-1) - 1
+```
+
+```{r, include=TRUE}
+adf_testM <- adf.test(tsM,alternative = 'stationary')
+print(adf_testM)
+adf_testD <- adf.test(tsD,alternative = 'stationary')
+print(adf_testD)
+adf_testI <- adf.test(tsI,alternative = 'stationary')
+print(adf_testI)
+adf_test <- adf.test(tsC,alternative = 'stationary')
+print(adf_test)
+
+#All pass
+```
+```{r,include=TRUE}
+kpss_testM <- kpss.test(tsM)
+print(kpss_testM)
+kpss_testD <- kpss.test(tsD)
+print(kpss_testD)
+kpss_testI <- kpss.test(tsI)
+print(kpss_testI)
+kpss_test <- kpss.test(tsC)
+print(kpss_test)
+#all pass as well
+```
+
+12- Predictive Time Series Models
+
+```{r, include=TRUE}
+Model1<-auto.arima(tsC)
+#predict(Model1, n.ahead = 24)
+auto.arima(tsC)
+auto.arima(tsM)
+auto.arima(tsD)
+auto.arima(tsI)
+
+ModelM<-auto.arima(tsM)
+ModelD<-auto.arima(tsD)
+ModelI<-auto.arima(tsI)
+predict(Model1, n.ahead = 24)
+predict(ModelM, n.ahead = 24)
+predict(ModelD, n.ahead = 24)
+predict(ModelI, n.ahead = 24)
+```
+
+
+X - Issue Categorization
+
+```{r}
+#Table used to categorize Issues for reference:
+table(round(comics$IssueN,digits=0))
+```
+
+
